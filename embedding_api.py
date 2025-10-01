@@ -25,5 +25,5 @@ def embed(query: Query):
     return {"embedding": embedding}
 
 if __name__ == "__main__":
-    import uvicorn 
+    import uvicorn # pyright: ignore[reportMissingImports]
     uvicorn.run(app, host="0.0.0.0", port=8000)
