@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flickr Image Search</title>
+
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Elasticsearch JavaScript Client -->
+    <script src="https://cdn.jsdelivr.net/npm/elasticsearch-browser@16.7.2/elasticsearch.min.js"></script>
+
+    <!-- Inter font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Simple loading spinner animation */
+        .loader {
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #3b82f6;
+            /* Blue-500 */
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Masonry-like responsive grid for results */
+        #results-grid {
+            column-gap: 1rem;
+        }
+
+        @media (min-width: 640px) {
+            #results-grid {
+                columns: 2;
+            }
+        }
+
+        @media (min-width: 1024px) {
+            #results-grid {
+                columns: 3;
+            }
+        }
+
+        @media (min-width: 1280px) {
+            #results-grid {
+                columns: 4;
+            }
+        }
+
+        .grid-item {
+            display: inline-block;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+
+        <!-- Header Section -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">Flickr Image Search</h1>
+            <p class="text-gray-600 mt-2">Powered by Elasticsearch</p>
+        </header>
+
+        <!-- Search Bar Section -->
+        <div class="max-w-2xl mx-auto mb-8">
+            <div class="flex items-center rounded-full shadow-lg bg-white overflow-hidden">
+                <input type="text" id="search-input"
+                    placeholder="Search for images by title or tags (e.g., 'Tunisia Carthage')"
+                    class="w-full py-3 px-6 text-gray-700 leading-tight focus:outline-none">
+                <button id="search-button"
+                    class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-full transition duration-300 ease-in-out transform hover:scale-105">
+                    Search
+                </button>
+            </div>
+        </div>
+
+        <!-- IMPORTANT NOTE TO USER -->
+        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-lg shadow-md mb-8 max-w-4xl mx-auto"
+            role="alert">
+            <p class="font-bold">Important Backend Configuration</p>
+            <p>For this application to work, you MUST enable CORS in your Elasticsearch configuration file
+                (`elasticsearch.yml`) and restart the service. Add the following lines:</p>
+            <pre class="bg-gray-800 text-white p-2 rounded mt-2 text-sm">http.cors.enabled: true
+http.cors.allow-origin: "*"</pre>
+        </div>
+
+
+        <!-- Results Section -->
+        <main id="results-container">
+            <!-- Status messages, loading spinner, and results will be injected here by JavaScript -->
+        </main>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+
+            // --- CONFIGURATION ---
+            const ELASTICSEARCH_HOST = 'http://localhost:9200';
+            const INDEX_NAME = 'flickrphotos'; // The index you created
+            const RESULTS_PER_PAGE = 50;
+
+            // --- DOM ELEMENTS ---
+            const searchInput = document.getElementById('search-input');
+            const searchButton = document.getElementById('search-button');
+            const resultsContainer = document.getElementById('results-container');
+
+            let esClient;
+
+            // --- INITIALIZATION ---
+            function initializeClient() {
+                try {
+                    esClient = new window.elasticsearch.Client({
+                        host: ELASTICSEARCH_HOST,
+                        log: 'trace' // Use 'trace' for detailed logs, 'error' for production
+                    });
+
+                    // Ping the cluster to check connection
+                    esClient.ping({
+                        requestTimeout: 3000
+                    }, function (error) {
+                        if (error) {
+                            console.error('Elasticsearch cluster is down!', error);
+                            displayMessage('error', 'Could not connect to Elasticsearch. Please ensure it is running and CORS is configured correctly.');
+                        } else {
+                            console.log('Successfully connected to Elasticsearch.');
+                            displayMessage('info', 'Enter a keyword to search for Flickr images.');
+                        }
+                    });
+                } catch (err) {
+                    console.error('Error creating Elasticsearch client:', err);
+                    displayMessage('error', 'Failed to initialize the search client.');
+                }
+            }
+
+            // --- UI FUNCTIONS ---
+
+            /**
+             * Displays a status message (info, error, or loading spinner) in the results container.
+             * @param {string} type - The type of message: 'info', 'error', 'loading', or 'clear'.
+             * @param {string} [message] - The text message to display for 'info' and 'error'.
+             */
+            function displayMessage(type, message) {
+                resultsContainer.innerHTML = ''; // Clear previous content
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'text-center p-8';
+
+                if (type === 'loading') {
+                    messageDiv.innerHTML = '<div class="loader mx-auto"></div><p class="mt-4 text-gray-600">Searching...</p>';
+                } else if (type === 'error') {
+                    messageDiv.className += ' bg-red-100 text-red-700 rounded-lg';
+                    messageDiv.textContent = `Error: ${message}`;
+                } else if (type === 'info') {
+                    messageDiv.className += ' bg-blue-100 text-blue-700 rounded-lg';
+                    messageDiv.textContent = message;
+                } else if (type === 'clear') {
+                    // Do nothing, container is already cleared
+                    return;
+                }
+
+                resultsContainer.appendChild(messageDiv);
+            }
+
+            /**
+             * Renders the search results in a grid.
+             * @param {Array} hits - The array of hit objects from the Elasticsearch response.
+             */
+            function renderResults(hits) {
+                resultsContainer.innerHTML = ''; // Clear loading/previous message
+
+                if (hits.length === 0) {
+                    displayMessage('info', 'No images found for your query. Try different keywords.');
+                    return;
+                }
+
+                const grid = document.createElement('div');
+                grid.id = 'results-grid';
+
+                hits.forEach(hit => {
+                    const source = hit._source;
+                    // Construct the image URL based on the formula from the project document
+                    const imageUrl = `http://farm${source.flickr_farm}.staticflickr.com/${source.flickr_server}/${source.id}_${source.flickr_secret}.jpg`;
+
+                    const itemContainer = document.createElement('div');
+                    itemContainer.className = 'grid-item bg-white rounded-lg shadow-md overflow-hidden transition-transform transform hover:-translate-y-1';
+
+                    const image = document.createElement('img');
+                    image.src = imageUrl;
+                    image.alt = source.title || 'Flickr Image';
+                    image.className = 'w-full h-auto object-cover';
+                    image.loading = 'lazy'; // Lazy load images for better performance
+
+                    // Add a fallback in case the Flickr image URL is broken
+                    image.onerror = function () {
+                        this.onerror = null;
+                        this.src = 'https://placehold.co/600x400/EEE/31343C?text=Image+Not+Found';
+                    };
+
+                    const titleContainer = document.createElement('div');
+                    titleContainer.className = 'p-4';
+
+                    const title = document.createElement('p');
+                    title.className = 'text-gray-800 font-semibold truncate';
+                    title.textContent = source.title || 'Untitled';
+
+                    titleContainer.appendChild(title);
+                    itemContainer.appendChild(image);
+                    itemContainer.appendChild(titleContainer);
+
+                    grid.appendChild(itemContainer);
+                });
+
+                resultsContainer.appendChild(grid);
+            }
+
+            // --- SEARCH FUNCTION ---
+
+            /**
+             * Performs the search against Elasticsearch.
+             */
+            async function performSearch() {
+                const queryText = searchInput.value.trim();
+
+                if (!queryText) {
+                    displayMessage('info', 'Please enter a keyword to start a search.');
+                    return;
+                }
+
+                if (!esClient) {
+                    displayMessage('error', 'Search client is not available.');
+                    return;
+                }
+
+                displayMessage('loading');
+
+                try {
+                    const response = await esClient.search({
+                        index: INDEX_NAME,
+                        body: {
+                            size: RESULTS_PER_PAGE,
+                            query: {
+                                multi_match: {
+                                    query: queryText,
+                                    fields: ["title", "tags"], // Search in both title and tags fields
+                                    fuzziness: "AUTO" // Allows for some typos
+                                }
+                            }
+                        }
+                    });
+
+                    renderResults(response.hits.hits);
+
+                } catch (error) {
+                    console.error("Elasticsearch search error:", error);
+                    let errorMessage = 'An error occurred during the search.';
+                    // Try to get a more specific error message
+                    if (error.meta && error.meta.body && error.meta.body.error) {
+                        errorMessage = error.meta.body.error.reason || errorMessage;
+                        if (error.meta.body.error.type === 'index_not_found_exception') {
+                            errorMessage = `The index '${INDEX_NAME}' was not found. Please ensure data has been imported correctly.`
+                        }
+                    }
+                    displayMessage('error', errorMessage);
+                }
+            }
+
+            // --- EVENT LISTENERS ---
+            searchButton.addEventListener('click', performSearch);
+            searchInput.addEventListener('keyup', function (event) {
+                if (event.key === 'Enter') {
+                    performSearch();
+                }
+            });
+
+            // --- START THE APP ---
+            initializeClient();
+        });
+    </script>
+</body>
+
+</html>

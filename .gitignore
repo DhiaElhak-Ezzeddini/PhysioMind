@@ -1,0 +1,81 @@
+# -----------------
+# Node / Next.js
+# -----------------
+node_modules/
+.next/
+out/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+*.tsbuildinfo
+
+# Local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# -----------------
+# Python
+# -----------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+.eggs/
+*.manifest
+*.spec
+*.pickle
+
+# Virtual environments
+.env/
+.venv/
+venv/
+ENV/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb_convert
+*.ipynb_save
+*.nbconvert
+*.nbgrader
+*.pydevproject
+
+# Cache
+*.log
+*.sqlite
+*.db
+*.db-journal
+*.h5
+*.pth
+.DS_Store
+Thumbs.db
+
+# -----------------
+# OS / Editor junk
+# -----------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# -----------------
+# Project specific
+# -----------------
+# ignore large embeddings / index files if generated locally
+vectorstore/
+indexes/
+data/
+uploads/
